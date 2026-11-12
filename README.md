@@ -31,6 +31,13 @@ Server. See the [documentation][docs] for details.
 
 [:books: Read the full app documentation][docs]
 
+## Experimental UniFi OS Server test
+
+This development branch includes a separate, **disposable-host-only**
+[UniFi OS Server test app](unifi-os-test/README.md). It does not replace or
+automatically migrate the existing app. Read its security warnings and
+[Home Assistant test instructions](unifi-os-test/DOCS.md) before installing.
+
 ## Support
 
 Got questions?

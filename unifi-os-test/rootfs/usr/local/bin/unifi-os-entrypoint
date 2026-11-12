@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+
+fail() {
+    echo "UniFi OS test startup refused: $*" >&2
+    exit 1
+}
+
+[[ "${container:-}" == docker && $$ -eq 1 ]] \
+    || fail "requires its own container PID namespace and PID 1"
+[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] \
+    || fail "requires cgroup v2"
+[[ "$(cat /proc/self/cgroup)" == "0::/" ]] \
+    || fail "requires a private cgroup namespace; will not modify host cgroups"
+mountpoint -q /data || fail "/data must be a persistent mount"
+[[ -c /dev/net/tun ]] || fail "/dev/net/tun is unavailable"
+
+echo "EXPERIMENTAL: SYS_ADMIN, AppArmor disabled, private /proc protections relaxed."
+echo "Use a disposable HAOS host. No production backups or devices."
+
+mkdir -p /data/uos/home /data/uos/state /data/uos/bootstrap
+chown uosserver:uosserver /data/uos/home /data/uos/state
+chmod 0700 /data/uos/bootstrap
+
+# Stable per-installation identity, without sharing the image's machine ID.
+if [[ ! -f /data/uos/machine-id ]]; then
+    systemd-id128 new > /data/uos/machine-id
+fi
+grep -Eq '^[0-9a-f]{32}$' /data/uos/machine-id \
+    || fail "invalid persistent machine ID"
+install -m 0444 /data/uos/machine-id /etc/machine-id
+
+# systemd manages only this container's private cgroups. Retain ALL Docker
+# /proc protections here; rootless runtime preparation lives in a worker ns.
+mount -o remount,rw /sys/fs/cgroup
+
+# This interface controls the whole kernel, not just a PID/mount namespace.
+# Keep Docker's read-only submount and fail closed if it is not effective.
+[[ ! -w /proc/sysrq-trigger ]] || fail "kernel SysRq interface must remain read-only"
+
+# Supervisor does not supply /run tmpfs. It is transient; no API access is used.
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+mkdir -p /run/lock
+
+# systemd replaces its own stdout with /dev/null. Keep a separate reader with
+# the original Docker stdout; never write to Supervisor's host /dev/console.
+mkfifo -m 0600 /run/unifi-os-log.pipe
+setpriv --bounding-set=-all /bin/bash -c \
+    'while true; do cat /run/unifi-os-log.pipe; done' &
+
+# Drop optional Docker baseline capabilities, even on older Supervisors.
+exec setpriv --bounding-set=-mknod,-net_raw,-audit_write,-setfcap \
+    /usr/lib/systemd/systemd --log-target=null --show-status=no

@@ -1,0 +1,13 @@
+[Unit]
+Description=Forward UniFi OS test journal to Home Assistant app logs
+After=systemd-journald.service
+
+[Service]
+ExecStart=/usr/bin/journalctl --follow --no-pager --output=short --unit=unifi-os-bootstrap.service --unit=uosserver.service --unit=uosserver-updater.service
+# Do not use /dev/console: Supervisor mounts the host's /dev into apps.
+StandardOutput=append:/run/unifi-os-log.pipe
+StandardError=append:/run/unifi-os-log.pipe
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

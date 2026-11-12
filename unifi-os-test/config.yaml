@@ -1,0 +1,52 @@
+---
+name: UniFi OS Server (experimental test)
+version: "0.1.0"
+slug: unifi_os_test
+description: Disposable-host test of UniFi OS Server with nested rootless Podman
+url: https://github.com/timlaing/app-unifi
+arch:
+  - aarch64
+  - amd64
+stage: experimental
+startup: application
+boot: manual_only
+init: false
+timeout: 180
+backup: cold
+privileged:
+  - SYS_ADMIN
+devices:
+  - /dev/net/tun
+# First-test concession, NOT evidence that AppArmor must be disabled long-term.
+apparmor: false
+webui: https://[HOST]:[PORT:11443]
+ports:
+  11443/tcp: 11443
+  3478/udp: null
+  5514/udp: null
+  5671/tcp: null
+  6789/tcp: null
+  8080/tcp: null
+  8444/tcp: null
+  8880/tcp: null
+  8881/tcp: null
+  8882/tcp: null
+  9543/tcp: null
+  10003/udp: null
+  28082/tcp: null
+ports_description:
+  11443/tcp: UniFi OS console (the only port published by default)
+  3478/udp: STUN (enable only for deliberate test-device adoption)
+  5514/udp: Remote syslog
+  5671/tcp: UniFi bundled service
+  6789/tcp: UniFi mobile speed test
+  8080/tcp: Device inform (leave off while testing installation)
+  8444/tcp: HTTPS captive portal
+  8880/tcp: HTTP captive portal
+  8881/tcp: UniFi bundled service
+  8882/tcp: UniFi bundled service
+  9543/tcp: Identity Hub
+  10003/udp: UniFi OS discovery
+  28082/tcp: UniFi bundled service
+options: {}
+schema: {}
