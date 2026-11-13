@@ -26,7 +26,7 @@ done
 # Historical proof-of-concept only. Keep kernel-wide SysRq protected, even
 # though this prevents the old rootless runtime setup from completing.
 if [[ -w /proc/sysrq-trigger ]]; then
-    echo "Refusing writable kernel SysRq; use unifi-os-test instead." >&2
+    echo "Refusing writable kernel SysRq; see unifi/TESTING.md instead." >&2
     exit 1
 fi
 

@@ -38,7 +38,7 @@ export XDG_RUNTIME_DIR
 # shellcheck disable=SC2016
 exec setpriv --reuid=uosserver --regid=uosserver --init-groups \
     --inh-caps=-all --ambient-caps=-all \
-    /bin/bash -c '
+    /bin/bash -euo pipefail -c '
         if test -w /proc/sysrq-trigger; then
             echo "UniFi worker must not have writable kernel SysRq access" >&2
             exit 1

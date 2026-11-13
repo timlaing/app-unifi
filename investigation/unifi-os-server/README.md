@@ -5,7 +5,7 @@ Investigated on 2026-11-12 for upstream issue
 This is an isolated experiment, not a supported Home Assistant app.
 
 **Historical results only.** For the current test implementation use
-[`unifi-os-test`](../../unifi-os-test/README.md). Earlier privileged/reduced
+[the candidate testing instructions](../../unifi/TESTING.md). Earlier privileged/reduced
 lab containers relaxed outer SysRq protections; do not resume them or use
 the old commands as deployment instructions. See the security correction in
 [PERMISSIONS.md](PERMISSIONS.md).

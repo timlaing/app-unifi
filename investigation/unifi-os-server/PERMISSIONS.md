@@ -10,8 +10,8 @@ outer `/proc/sysrq-trigger` protection. That can expose kernel-wide reboot
 controls to host-mapped root; private mount namespaces do not isolate SysRq.
 Do not resume the old permission-test containers. The archived entrypoint now
 retains that protection and is not a working deployment recipe. Use the
-separate `unifi-os-test` app, which keeps outer protections and prepares
-rootless execution in worker namespaces instead. Historical results below
+[candidate testing instructions](../../unifi/TESTING.md), which keep outer
+protections and prepare rootless execution in worker namespaces instead. Historical results below
 describe capability feasibility, not a release-ready security boundary.
 
 **The only additional outer-container capability needed in the successful

@@ -247,7 +247,8 @@ installation deliberately fails closed for inspection, not blind reinstall.
   the native backup preserves either.
 - Verify restart, outer recreation, cold HA backup/restore and scoped rollback.
 - Test device reconnection/provisioning only during an approved deliberate
-  cutover. HTTPS captive portal changes from 8843 to 8444.
+  cutover. The HTTPS portal container port changes to 8444; the default
+  externally accessible host port remains 8843.
 
 Detailed historical research remains in the private off-repository research
 workspace; its removed custom pipeline is not the current implementation.
