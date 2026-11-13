@@ -1,0 +1,51 @@
+#!/bin/bash
+# App-owned container adapter.
+set -euo pipefail
+
+[[ "$(id -u)" == 0 ]] || exit 1
+case "${1:-}" in
+    installer|service) mode=$1 ;;
+    *) echo "Invalid UniFi worker mode" >&2; exit 1 ;;
+esac
+
+# Called ONLY by the fixed unshare invocations above. Never prepare PID 1's
+# mount namespace, which must retain host-control protections for root.
+[[ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ]] \
+    || { echo "UniFi worker requires a separate mount namespace" >&2; exit 1; }
+for path in \
+    /proc/acpi /proc/asound /proc/interrupts /proc/kcore /proc/keys \
+    /proc/latency_stats /proc/sched_debug /proc/scsi /proc/timer_list \
+    /proc/timer_stats /proc/bus /proc/fs /proc/irq /proc/sys \
+    /proc/sysrq-trigger; do
+    if mountpoint -q "${path}"; then
+        umount "${path}"
+    fi
+done
+
+if [[ "${mode}" == installer ]]; then
+    # The pinned, trusted vendor installer needs root and runs transiently.
+    # No long-running root service inherits this mount namespace.
+    exec /opt/unifi-os/installer --non-interactive
+fi
+
+# setpriv changes this process itself; unlike runuser, it leaves no root
+# parent waiting in the relaxed namespace. Keep the bounding set needed by
+# Podman's trusted setuid newuidmap/newgidmap helpers, but clear ambient caps.
+export HOME=/home/uosserver USER=uosserver LOGNAME=uosserver
+XDG_RUNTIME_DIR="/run/user/$(id -u uosserver)"
+export XDG_RUNTIME_DIR
+# Expressions in this fixed script are evaluated by the UID-dropped child.
+# shellcheck disable=SC2016
+exec setpriv --reuid=uosserver --regid=uosserver --init-groups \
+    --inh-caps=-all --ambient-caps=-all \
+    /bin/bash -c '
+        if test -w /proc/sysrq-trigger; then
+            echo "UniFi worker must not have writable kernel SysRq access" >&2
+            exit 1
+        fi
+        # Create the rootless pause namespace in this prepared mount view,
+        # before any bootstrap probe can initialise it from protected PID 1.
+        /usr/bin/podman info >/dev/null
+        touch "${XDG_RUNTIME_DIR}/unifi-rootless-ready"
+        exec /var/lib/uosserver/bin/uosserver-service
+    '

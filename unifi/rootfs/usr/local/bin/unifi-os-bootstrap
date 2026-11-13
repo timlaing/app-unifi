@@ -1,0 +1,74 @@
+#!/bin/bash
+# App-owned container adapter.
+set -euo pipefail
+
+readonly saved=/var/lib/unifi-os-app/uos/bootstrap
+version=$(cat /opt/unifi-os/version)
+readonly version
+readonly receipt="${saved}/installed-version"
+
+fail() {
+    echo "UniFi OS bootstrap failed: $*" >&2
+    exit 1
+}
+
+if [[ -f /var/lib/unifi-os-app/options.json ]] \
+    && grep -Eq '"(memory_max|memory_init|log_level)"[[:space:]]*:' /var/lib/unifi-os-app/options.json; then
+    echo "WARNING: legacy heap/log options are retained but not applied by this candidate; see DOCS.md."
+fi
+
+# Recheck the mount-only layout even if the vendor previously disabled the
+# harmless unit. A failed layout must not masquerade as legacy discovery.
+if [[ -f /var/lib/unifi-os-app/unifi/data/system.properties ]]; then
+    /usr/local/bin/unifi-os-legacy-layout
+fi
+
+/usr/local/bin/unifi-os-prepare-mongo
+
+if [[ -f "${receipt}" ]]; then
+    [[ "$(cat "${receipt}")" == "${version}" ]] \
+        || fail "installer version changed; automatic OS upgrades are not implemented"
+    grep -Fxq "APP_VERSION=${version}" /var/lib/uosserver/server.conf \
+        || fail "stored OS version differs; do not downgrade existing data"
+
+    # HA rebuild/update recreates the outer container. Restore its vendor units
+    # and commands; all inner storage remains in the persistent data-root alias.
+    for command in uosserver uosserver-purge; do
+        [[ -f "${saved}/${command}" ]] || fail "missing saved ${command}"
+        install -m 0755 "${saved}/${command}" "/usr/local/bin/${command}"
+    done
+    for unit in uosserver.service uosserver-updater.service; do
+        [[ -f "${saved}/${unit}" ]] || fail "missing saved ${unit}"
+        install -m 0644 "${saved}/${unit}" "/etc/systemd/system/${unit}"
+    done
+    systemctl daemon-reload
+    loginctl enable-linger uosserver
+    systemctl start "user@$(id -u uosserver).service"
+    systemctl start uosserver.service
+    echo "Existing UniFi OS ${version} state restored; waiting for readiness."
+else
+    # Do not reinstall over partial state or silently replace an existing OS.
+    [[ ! -e /var/lib/uosserver/server.conf ]] \
+        || fail "partial/existing installation without receipt; inspect logs before recovery"
+    [[ ! -d /home/uosserver/.local/share/containers/storage ]] \
+        || fail "existing Podman storage without receipt; refusing to overwrite it"
+
+    echo "Installing UniFi OS ${version}. This can take several minutes."
+    # Create the runtime-dir tmpfs and user bus BEFORE taking the worker's
+    # private mount snapshot; later parent mount events will not propagate.
+    loginctl enable-linger uosserver
+    systemctl start "user@$(id -u uosserver).service"
+    unshare --mount --propagation private /usr/local/bin/unifi-os-worker installer
+    # On subsequent boots, our receipt/version checks must run BEFORE the
+    # vendor units start. Disabling them does not stop the running services.
+    systemctl disable uosserver.service uosserver-updater.service
+    for command in uosserver uosserver-purge; do
+        install -m 0755 "/usr/local/bin/${command}" "${saved}/${command}"
+    done
+    for unit in uosserver.service uosserver-updater.service; do
+        install -m 0644 "/etc/systemd/system/${unit}" "${saved}/${unit}"
+    done
+    printf '%s\n' "${version}" > "${receipt}.tmp"
+    mv "${receipt}.tmp" "${receipt}"
+    echo "Installation saved. Legacy import is handled only by Ubiquiti's setup wizard."
+fi
