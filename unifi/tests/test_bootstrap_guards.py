@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
-import subprocess
 import unittest
+
+from docker_fixture import run_container
 
 APP = Path(__file__).resolve().parents[1]
 
@@ -13,24 +14,7 @@ APP = Path(__file__).resolve().parents[1]
 )
 class BootstrapGuardsTest(unittest.TestCase):
     def run_container(self, script, *arguments):
-        subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network=none",
-                "--entrypoint=bash",
-                os.environ["UNIFI_MONGO_TEST_IMAGE"],
-                "-euo",
-                "pipefail",
-                "-c",
-                script,
-                "--",
-                *arguments,
-            ],
-            check=True,
-            timeout=30,
-        )
+        run_container(script, *arguments, timeout=30)
 
     def test_failed_layout_blocks_preparation_and_vendor_start(self):
         self.run_container(r"""

@@ -1,8 +1,9 @@
 """Opt-in real MongoDB format/FCV test; disposable, network-free container."""
 
 import os
-import subprocess
 import unittest
+
+from docker_fixture import run_container
 
 
 @unittest.skipUnless(
@@ -10,18 +11,8 @@ import unittest
 )
 class MongoUpgradeTest(unittest.TestCase):
     def test_upgrade_failure_resume_noop_and_original_restore(self):
-        subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network=none",
-                "--entrypoint=bash",
-                os.environ["UNIFI_MONGO_TEST_IMAGE"],
-                "-euo",
-                "pipefail",
-                "-c",
-                r"""
+        run_container(
+            r"""
 runner=/usr/local/bin/unifi-os-mongo
 prepare=/usr/local/bin/unifi-os-prepare-mongo
 mkdir -p /lib/unifi/data/db
@@ -80,7 +71,5 @@ printf 'corruption' >> /var/lib/unifi-os-app/mongo-originals/originals.tar
 if "$prepare"; then echo 'Expected backup integrity failure' >&2; exit 1; fi
 test "$(cat /var/lib/unifi-os-app/mongo-runtime)" = 4.4
 """,
-            ],
-            check=True,
             timeout=300,
         )
