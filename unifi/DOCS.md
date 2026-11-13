@@ -1,205 +1,106 @@
-# Home Assistant Community App: UniFi Network Application
+# Home Assistant App: UniFi OS Server
 
-This app runs Ubiquiti Networks' UniFi Network Application software, which
-allows you to manage your UniFi network via the web browser. The app
-provides a single-click installation and run solution for Home Assistant,
-allowing users to get their network up, running, and updated, easily.
+**Production candidate — not yet approved for a live controller.** This is a
+breaking update of the existing `unifi` app, not a second app or a release-ready
+replacement. Review [production readiness](PRODUCTION_READINESS.md) first.
 
-## Installation
+## Same-app update
 
-The installation of this app is pretty straightforward and not different in
-comparison to installing any other Home Assistant app.
+Keep the existing repository/app identity. Installing from a different
+repository or as a local app produces different private storage even if its
+slug is also `unifi`. Do not uninstall the old app or move its database.
 
-1. Click the Home Assistant My button below to open the app on your Home
-   Assistant instance.
+Supervisor stops the old runtime as part of an update. Its complete storage
+root is mounted privately at `/lib/unifi/data`, retained through a bind alias
+at `/var/lib/unifi-os-app`, and its existing `unifi/data` subdirectory is exposed
+at the vendor path with another real bind mount. There is no `/data` mount or
+legacy-data symlink. Existing data and settings are not rewritten by the layout
+adapter. UniFi OS state lives separately under the same storage root's `uos/`.
 
-   [![Open this app in your Home Assistant instance.][app-badge]][app]
+Take and verify a **cold app-only HA backup** before an approved update. Keep an
+off-host copy. The app also saves a private original-data tar outside the legacy
+directory before the first MongoDB open, including possible journal recovery.
+That archive is checksum-verified and never replaced.
 
-1. Click the "Install" button to install the app.
-1. Check the logs of the "UniFi Network Application" to see if everything went
-   well.
-1. Click the "OPEN WEB UI" button, and follow the initial wizard.
-1. After completing the wizard, log in with the credentials just created.
-1. Select Unifi Devices which you can find on the left hand. Once there, select Device Updates and Settings on the top right.
-1. Scroll down to Device settings and below the `Inform Host Override` label, enter the IP or hostname of the device running Home Assistant.
-1. Click the checkbox option for `Inform Host Override` so that is now "checked".
-1. Hit the "Apply Changes" button to activate the settings.
-1. Ready to go!
+For an existing MongoDB 3.6/4.0 database, one pre-installer script upgrades the
+same directory through 3.6 → 4.0 → 4.2 → 4.4, using official MongoDB commands,
+FCV checkpoints, full collection validation and clean shutdowns. Compatible
+4.2/4.4 databases are not format-upgraded. Unknown formats, incomplete backups
+and failed transitions stop startup; there is no automatic data rollback.
 
-## Configuration
+The matching official runtime is selected by an app-owned launcher. No vendor
+installer, executable, inner application file or generated base unit is patched.
+Container adaptations use separate systemd drop-ins. There is no backup
+converter, working-copy database, automatic owner creation or import API worker.
 
-**Note**: _Remember to restart the app when the configuration is changed._
+## Vendor setup and import
 
-Example app configuration, with all available options:
+Once the console is ready, use **Open Web UI** and Ubiquiti's normal setup
+wizard. Its legacy import offer requires the vendor-authenticated account
+path; local/offline setup does not show the same offer. Internet is required
+for sign-in and downloads. The wizard owns backup export, installing a
+compatible Network version, restore and owner setup.
 
-```yaml
-log_level: info
-memory_max: 2048
-memory_init: 512
-```
+After import, verify device IDs, sites, networks, WLANs, administrator access
+and assets before permitting device reconnection. A healthy console is not
+proof of a complete restore. In the observed ARM64 run, the vendor reported
+successful restore and the user confirmed data loaded, but historical
+statistics were not restored (`db_stat.gz` missing). A finalization HTTP 401 and
+Media Server crash dump still require investigation.
 
-**Note**: _This is just an example, don't copy and paste it! Create your own!_
+## Networking
 
-### Option: `log_level`
+The normal candidate uses Supervisor's app network and direct port publishing;
+it needs no external TCP proxy, Docker socket or deployment helper. It does
+**not** isolate copied data from LAN devices: disposable-host testing requires
+separate, verified incoming and outgoing isolation. See [testing](TESTING.md).
 
-The `log_level` option controls the level of log output by the app and can
-be changed to be more or less verbose, which might be useful when you are
-dealing with an unknown issue. Possible values are:
+| Service           | Container port | Default host port |
+| ----------------- | -------------- | ----------------- |
+| UniFi OS console  | 11443/tcp      | 8443              |
+| STUN              | 3478/udp       | 3478              |
+| Device inform     | 8080/tcp       | 8080              |
+| Remote syslog     | 5514/udp       | 5514              |
+| Mobile speed test | 6789/tcp       | 6789              |
+| HTTPS portal      | 8444/tcp       | 8843              |
+| HTTP portal       | 8880/tcp       | 8880              |
+| OS discovery      | 10003/udp      | 10001             |
 
-- `trace`: Show every detail, like all called internal functions.
-- `debug`: Shows detailed debug information.
-- `info`: Normal (usually) interesting events.
-- `warning`: Exceptional occurrences that are not errors.
-- `error`: Runtime errors that do not require immediate action.
-- `fatal`: Something went terribly wrong. App becomes unusable.
+The defaults retain legacy host numbers where possible, but some container
+port keys changed. **Custom existing bindings are not yet proven to survive
+an update.** Check them explicitly; removed SNMP/SSDP mappings are not silently
+emulated. Port forwarding/device provisioning is an outstanding acceptance test.
 
-Please note that each level automatically includes log messages from a
-more severe level, e.g., `debug` also shows `info` messages. By default,
-the `log_level` is set to `info`, which is the recommended setting unless
-you are troubleshooting.
+## Settings, backups and lifecycle
 
-### Option: `memory_max`
+The legacy `log_level`, `memory_max` and `memory_init` keys remain accepted and
+stored so Supervisor does not invalidate existing options. Their effects are
+**not yet applied** to the vendor runtime. Do not assume old heap limits still
+work; this is a release blocker. Other Network settings belong to the native
+backup/import, not to a custom adapter.
 
-This option allows you to change the amount of memory the UniFi Network
-Application is allowed to consume. By default, this is limited to 256 MB.
-You might want to increase this, in order to reduce CPU load or reduce this,
-in order to optimize your system for lower memory usage.
+The retained `/backup` mount makes legacy external backups available; new
+vendor automatic backups are not claimed to be redirected to `/backup/unifi`.
+Cold HA backups must include the complete app storage root, including original
+data, runtime selection and `uos/`. Backup/restore and rollback of the final
+candidate still require complete acceptance testing.
 
-This option takes the number of Megabyte, for example, the default is 256.
+Restart restores saved vendor commands/units verbatim. An interrupted initial
+installation fails closed rather than reinstalling over existing Podman state.
+Vendor OS upgrades are not implemented: keep OS auto-updates off. Restoring
+older data is an explicit operator action using a verified matching app backup,
+never an automatic overwrite or a MongoDB binary downgrade.
 
-### Option: `memory_init`
+## Security and resources
 
-This option allows you to change the amount of memory the UniFi Network
-Application will initially reserve/consume when starting. By default,
-this is limited to 128MB.
+The candidate requires cgroup v2, private PID/cgroup namespaces, `/dev/net/tun`
+and outer `SYS_ADMIN`; AppArmor is currently disabled. Rootless Podman runs the
+inner vendor OS. Host PID/network/DBus, host cgroup control, HA API and Docker
+socket access are not requested. Outer read-only kernel SysRq protection is
+checked. These protections are not a completed security review.
 
-This option takes the number of Megabyte, for example, the default is 128.
-
-## Automated backups
-
-The UniFi Network Application ships with an automated backup feature. This
-feature works but has been adjusted to put the created backups in a different
-location.
-
-Backups are created in `/backup/unifi`. You can access this folder using
-the normal Home Assistant methods (e.g., using Samba, Terminal, SSH).
-
-## Manually adopting a device
-
-Alternatively to setting up a custom inform address (installation steps 7-9)
-you can manually adopt a device by following these steps:
-
-- SSH into the device using `ubnt` as username and `ubnt` as password
-- `$ mca-cli`
-- `$ set-inform http://<IP of Hassio>:<controller port (default:8080)>/inform`
-  - for example `$ set-inform http://192.168.1.14:8080/inform`
-
-## Future of this app
-
-**The standalone UniFi Network Application is approaching end-of-life.**
-Ubiquiti is transitioning to UniFi OS Server, a multi-container architecture
-based on podman and systemd that does not translate to a Docker/Home Assistant
-app. This app will continue to work as long as Ubiquiti ships the standalone
-application, but there is no upgrade path from this app to UniFi OS Server.
-Users planning long-term should consider migrating to a dedicated machine or VM.
-
-## Known issues and limitations
-
-- The AP seems stuck in "adopting" state: Please read the installation
-  instructions carefully. You need to change some controller settings
-  in order for this app to work properly. Using the Ubiquiti Discovery
-  Tool, or SSH'ing into the AP and setting the INFORM after adopting
-  will resolve this. (see: _Manually adopting a device_)
-- The following error can show up in the log, but can be safely ignored:
-
-  ```
-    INFO: I/O exception (java.net.ConnectException) caught when processing
-    request: Connection refused (Connection refused)
-  ```
-
-  This is a known issue, however, the app functions normally.
-
-- Due to security policies in the UniFi Network Application software, it is
-  currently impossible to add the UniFI web interface to your Home Assistant
-  frontend using a `panel_iframe`.
-- The broadcast feature of the EDU-type APs are currently not working with
-  this app. Due to a limitation in Home Assistant, is it currently impossible
-  to open the required "range" of ports needed for this feature to work.
-- This app cannot support Ingress due to technical limitations of the
-  UniFi software.
-- During making a backup of this app via Home Assistant, this app will
-  temporary shutdown and start up after the backup has finished. This prevents
-  data corruption during taking the backup.
-
-## Changelog & Releases
-
-This repository keeps a change log using [GitHub's releases][releases]
-functionality. The format of the log is based on
-[Keep a Changelog][keepchangelog].
-
-Releases are based on [Semantic Versioning][semver], and use the format
-of `MAJOR.MINOR.PATCH`. In a nutshell, the version will be incremented
-based on the following:
-
-- `MAJOR`: Incompatible or major changes.
-- `MINOR`: Backwards-compatible new features and enhancements.
-- `PATCH`: Backwards-compatible bugfixes and package updates.
-
-## Support
-
-Got questions?
-
-You have several options to get them answered:
-
-- The [Home Assistant Community Apps Discord chat server][discord] for app
-  support and feature requests.
-- The [Home Assistant Discord chat server][discord-ha] for general Home
-  Assistant discussions and questions.
-- The Home Assistant [Community Forum][forum].
-- Join the [Reddit subreddit][reddit] in [/r/homeassistant][reddit]
-
-You could also [open an issue here][issue] GitHub.
-
-## Authors & contributors
-
-The original setup of this repository is by [Franck Nijhof][frenck].
-
-For a full list of all authors and contributors,
-check [the contributor's page][contributors].
-
-## License
-
-MIT License
-
-Copyright (c) 2018-2026 Franck Nijhof
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-[app-badge]: https://my.home-assistant.io/badges/supervisor_addon.svg
-[app]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=a0d7b954_unifi&repository_url=https%3A%2F%2Fgithub.com%2Fhassio-addons%2Frepository
-[contributors]: https://github.com/hassio-addons/app-unifi/graphs/contributors
-[discord-ha]: https://discord.gg/c5DvZ4e
-[discord]: https://discord.me/hassioaddons
-[forum]: https://community.home-assistant.io/t/home-assistant-community-add-on-unifi-controller/56297?u=frenck
-[frenck]: https://github.com/frenck
-[issue]: https://github.com/hassio-addons/app-unifi/issues
-[keepchangelog]: http://keepachangelog.com/en/1.0.0/
-[reddit]: https://reddit.com/r/homeassistant
-[releases]: https://github.com/hassio-addons/app-unifi/releases
-[semver]: http://semver.org/spec/v2.0.0.htm
+Allow at least 25 GB free for building/installing on the test host and sufficient
+RAM/swap for the vendor preflight. Temporary installer storage is disk-backed.
+Bundled MongoDB 3.6–4.4 runtimes are EOL import-compatibility tooling, not a
+long-term database support promise. ARM64 is exercised; AMD64 is not yet
+execution-validated. Consult the release checklist before changing this status.

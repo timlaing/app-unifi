@@ -1,0 +1,49 @@
+---
+name: UniFi OS candidate checks
+
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+    paths:
+      - unifi/**
+      - .github/workflows/unifi-os-candidate.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mongo-compatibility:
+    name: Native MongoDB compatibility (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-yaml
+      - name: Check shell adapters
+        run: |
+          shellcheck unifi/rootfs/usr/local/bin/unifi-os-* \
+            unifi/rootfs/usr/lib/unifi/bin/mongod unifi/build/* unifi/tests/*.sh
+      - name: Build architecture-matched image
+        run: docker build --platform linux/${{ matrix.arch }} -t unifi-os-candidate:test unifi
+      - name: Test vendor boundary and real in-place MongoDB upgrades
+        env:
+          UNIFI_MONGO_TEST_IMAGE: unifi-os-candidate:test
+        run: python3 -m unittest discover -s unifi/tests -p 'test_*.py' -v
+      - name: Test real isolated bind mounts
+        run: |
+          docker run --rm --network=none --cap-add=SYS_ADMIN \
+            --security-opt apparmor=unconfined --entrypoint=bash \
+            -v "$PWD/unifi/tests/test_bind_layout.sh:/run/test-layout:ro" \
+            unifi-os-candidate:test /run/test-layout

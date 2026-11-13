@@ -1,4 +1,4 @@
-# Home Assistant Community App: UniFi Network Application
+# Home Assistant Community App: UniFi OS Server
 
 [![Release][release-shield]][release] ![Project Stage][project-stage-shield] ![Project Maintenance][maintenance-shield]
 
@@ -6,27 +6,24 @@
 
 [![Support Frenck on Patreon][patreon-shield]][patreon]
 
-The UniFi Network Application allows you to manage your UniFi network
-using a web browser.
+UniFi OS Server allows you to manage your UniFi network using a web browser.
 
 ## Important notice
 
-**The standalone UniFi Network Application is approaching end-of-life.**
-Ubiquiti is transitioning to UniFi OS Server, which does not translate to a
-Docker/Home Assistant app. There is no upgrade path from this app to UniFi OS
-Server. This app will continue to work as long as Ubiquiti ships the standalone
-application, but users planning long-term should consider migrating to a
-dedicated machine or VM.
+**Experimental production candidate, not a stable release.** This is a breaking
+update of the existing app. It retains legacy data and uses Ubiquiti's unchanged
+setup wizard for import after in-place MongoDB compatibility preparation.
+Read `DOCS.md` and `PRODUCTION_READINESS.md` before any disposable-host test.
 
 ## About
 
-This app runs Ubiquiti Networks' UniFi Network Application software, which
-allows you to manage your UniFi network via the web browser. The app
-provides a single-click installation and run solution for Home Assistant,
-allowing users to get their network up, running, and updated, easily.
+This app runs the original UniFi OS Server installer and rootless Podman runtime
+inside the existing Home Assistant app. It does not patch vendor binaries or
+replace the native backup/restore flow.
 
-This app supports all Home Assistant supported architectures, including the
-Raspberry Pi.
+ARM64 has been exercised on a disposable HAOS host. AMD64 is defined but still
+requires execution validation. Security, option/port compatibility and complete
+lifecycle testing remain release blockers.
 
 ![UniFi Network Application][screenshot]
 
@@ -75,7 +72,7 @@ If you are more interested in stable releases of our apps:
 [maintenance-shield]: https://img.shields.io/maintenance/yes/2026.svg
 [patreon-shield]: https://frenck.dev/wp-content/uploads/2019/12/patreon.png
 [patreon]: https://www.patreon.com/frenck
-[project-stage-shield]: https://img.shields.io/badge/project%20stage-production%20ready-brightgreen.svg
+[project-stage-shield]: https://img.shields.io/badge/project%20stage-experimental-orange.svg
 [release-shield]: https://img.shields.io/badge/version-{{ version }}-blue.svg
 [release]: {{ repo }}/tree/{{ version }}
 [screenshot]: https://github.com/hassio-addons/app-unifi/raw/main/images/screenshot.jpg

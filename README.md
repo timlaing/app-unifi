@@ -1,4 +1,4 @@
-# Home Assistant Community App: UniFi Network Application
+# Home Assistant Community App: UniFi OS Server
 
 [![GitHub Release][releases-shield]][releases]
 ![Project Stage][project-stage-shield]
@@ -12,24 +12,30 @@
 
 [![Support Frenck on Patreon][patreon-shield]][patreon]
 
-The UniFi Network Application allows you to manage your UniFi network
-using a web browser.
+UniFi OS Server lets you manage your UniFi network using a web browser.
+This branch is an **experimental production candidate**, not a stable release.
 
 ![The UniFi Network Application app](images/screenshot.jpg)
 
 ## About
 
-This app runs Ubiquiti Networks' UniFi Network Application software, which
-allows you to manage your UniFi network via the web browser. The app
-provides a single-click installation and run solution for Home Assistant,
-allowing users to get their network up, running, and updated, easily.
+This candidate updates the existing `unifi` app in place to Ubiquiti's unchanged
+UniFi OS Server installer and setup flow. It retains private app storage and
+adds only the MongoDB compatibility preparation required by the native importer.
 
-**Note:** The standalone UniFi Network Application is approaching end-of-life.
-Ubiquiti is transitioning to UniFi OS Server, which does not translate to a
-Docker/Home Assistant app. There is no upgrade path from this app to UniFi OS
-Server. See the [documentation][docs] for details.
+The ARM64 same-app import has been exercised on a disposable HAOS host; the
+user confirmed the restored data loaded correctly. AMD64 execution, security
+hardening and full lifecycle/option/port compatibility remain release blockers.
+See the [release checklist](unifi/PRODUCTION_READINESS.md). Do not update a live
+controller from this development branch.
 
 [:books: Read the full app documentation][docs]
+
+## Development and testing
+
+There is no second app to install: the runtime is packaged under the existing
+`unifi/` identity. Read the [Home Assistant test instructions](unifi/TESTING.md)
+and security warnings before running any candidate on a disposable host.
 
 ## Support
 
@@ -99,7 +105,7 @@ SOFTWARE.
 [contributors]: https://github.com/hassio-addons/app-unifi/graphs/contributors
 [discord-ha]: https://discord.gg/c5DvZ4e
 [discord]: https://discord.me/hassioaddons
-[docs]: https://github.com/hassio-addons/app-unifi/blob/main/unifi/DOCS.md
+[docs]: unifi/DOCS.md
 [forum]: https://community.home-assistant.io/t/home-assistant-community-add-on-unifi-controller/56297?u=frenck
 [frenck]: https://github.com/frenck
 [github-actions-shield]: https://github.com/hassio-addons/app-unifi/workflows/CI/badge.svg
@@ -111,7 +117,7 @@ SOFTWARE.
 [maintenance-shield]: https://img.shields.io/maintenance/yes/2026.svg
 [patreon-shield]: https://frenck.dev/wp-content/uploads/2019/12/patreon.png
 [patreon]: https://www.patreon.com/frenck
-[project-stage-shield]: https://img.shields.io/badge/project%20stage-production%20ready-brightgreen.svg
+[project-stage-shield]: https://img.shields.io/badge/project%20stage-experimental-orange.svg
 [reddit]: https://reddit.com/r/homeassistant
 [releases-shield]: https://img.shields.io/github/release/hassio-addons/app-unifi.svg
 [releases]: https://github.com/hassio-addons/app-unifi/releases

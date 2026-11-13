@@ -1,0 +1,13 @@
+[Unit]
+# App-owned mount-only unit; the real Network service is inside Podman.
+Description=Legacy UniFi layout service (bind mount only, no controller process)
+ConditionPathExists=/var/lib/unifi-os-app/unifi/data/system.properties
+Before=unifi-os-bootstrap.service uosserver-updater.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/unifi-os-legacy-layout
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
