@@ -81,7 +81,7 @@ def request(method, path, token, payload=None, timeout=60):
             raw = response.read(MAX_API_BODY + 1)
     except urllib.error.HTTPError as err:
         raise LegacyError(f"Supervisor {method} {path} failed: HTTP {err.code}")
-    except (OSError, TimeoutError) as err:
+    except OSError as err:
         raise LegacyError(f"Supervisor {method} {path} failed: {err}")
     if len(raw) > MAX_API_BODY:
         raise LegacyError(f"Supervisor {method} {path} returned too much data")
@@ -100,6 +100,11 @@ def request(method, path, token, payload=None, timeout=60):
     return data if isinstance(data, dict) else {}
 
 
+def addon_action(token, slug, action, payload=None):
+    path = f"/addons/{urllib.parse.quote(slug, safe='')}/{action}"
+    return request("POST", path, token, payload)
+
+
 def download(url, token, destination, timeout=1800):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     opener = urllib.request.build_opener(NoRedirect, urllib.request.ProxyHandler({}))
@@ -113,7 +118,7 @@ def download(url, token, destination, timeout=1800):
                 if not chunk:
                     break
                 output.write(chunk)
-    except (OSError, TimeoutError, urllib.error.HTTPError) as err:
+    except OSError as err:
         raise LegacyError(f"could not download the temporary backup: {err}")
 
 
@@ -188,70 +193,71 @@ def normalized_members(archive):
     return result
 
 
+def inner_archive(outer, members, slug):
+    meta_member = members.get("backup.json")
+    if meta_member is None or not meta_member.isreg():
+        raise LegacyError("temporary backup has no backup.json")
+    stream = outer.extractfile(meta_member)
+    if stream is None:
+        raise LegacyError("temporary backup metadata cannot be read")
+    try:
+        metadata = json.loads(stream.read(MAX_API_BODY))
+    except ValueError as err:
+        raise LegacyError(f"temporary backup metadata is invalid: {err}")
+    included = {
+        item.get("slug")
+        for item in metadata.get("addons", [])
+        if isinstance(item, dict)
+    }
+    if slug not in included:
+        raise LegacyError("temporary backup does not contain the legacy add-on")
+    inner_member = members.get(f"{slug}.tar.gz")
+    if inner_member is None or not inner_member.isreg():
+        raise LegacyError("temporary backup has no app data archive")
+    stream = outer.extractfile(inner_member)
+    if stream is None:
+        raise LegacyError("temporary backup app data cannot be read")
+    return stream
+
+
+def legacy_members(inner):
+    for member in inner.getmembers():
+        name = member.name
+        while name.startswith("./"):
+            name = name[2:]
+        name = name.lstrip("/")
+        parts = name.replace(os.sep, "/").split("/")
+        if not name or ".." in parts or not name.startswith("data/"):
+            continue
+        if member.isdev() or member.isfifo():
+            continue
+        if member.issym() or member.islnk():
+            if os.path.isabs(member.linkname):
+                # The legacy app's absolute /backup/unifi link is not used by
+                # UniFi OS and must not escape the staging directory.
+                continue
+            if ".." in member.linkname.replace(os.sep, "/").split("/"):
+                continue
+        yield member.replace(name=name)
+
+
+def addon_settings(inner, members):
+    member = members.get("addon.json")
+    if member is None or not member.isreg():
+        raise LegacyError("legacy data has no addon.json settings")
+    stream = inner.extractfile(member)
+    settings = json.loads(stream.read(MAX_API_BODY))
+    if not isinstance(settings, dict):
+        raise LegacyError("legacy settings are invalid")
+    return settings
+
+
 def extract_data(backup_path, slug, staging):
     with tarfile.open(backup_path, "r:*") as outer:
-        outer_members = normalized_members(outer)
-        meta_member = outer_members.get("backup.json")
-        if meta_member is None or not meta_member.isreg():
-            raise LegacyError("temporary backup has no backup.json")
-        stream = outer.extractfile(meta_member)
-        if stream is None:
-            raise LegacyError("temporary backup metadata cannot be read")
-        try:
-            metadata = json.loads(stream.read(MAX_API_BODY))
-        except ValueError as err:
-            raise LegacyError(f"temporary backup metadata is invalid: {err}")
-        included = {
-            item.get("slug")
-            for item in metadata.get("addons", [])
-            if isinstance(item, dict)
-        }
-        if slug not in included:
-            raise LegacyError("temporary backup does not contain the legacy add-on")
-
-        inner_name = f"{slug}.tar.gz"
-        inner_member = outer_members.get(inner_name)
-        if inner_member is None or not inner_member.isreg():
-            raise LegacyError("temporary backup has no app data archive")
-        inner_stream = outer.extractfile(inner_member)
-        if inner_stream is None:
-            raise LegacyError("temporary backup app data cannot be read")
-        with tarfile.open(fileobj=inner_stream, mode="r:gz") as inner:
-            addon_member = normalized_members(inner).get("addon.json")
-            if addon_member is None or not addon_member.isreg():
-                raise LegacyError("legacy data has no addon.json settings")
-            settings_stream = inner.extractfile(addon_member)
-            settings = json.loads(settings_stream.read(MAX_API_BODY))
-            if not isinstance(settings, dict):
-                raise LegacyError("legacy settings are invalid")
-
-            def safe_members():
-                for member in inner.getmembers():
-                    name = member.name
-                    while name.startswith("./"):
-                        name = name[2:]
-                    name = name.lstrip("/")
-                    parts = name.replace(os.sep, "/").split("/")
-                    if (
-                        not name
-                        or ".." in parts
-                        or name == "data"
-                        or not name.startswith("data/")
-                    ):
-                        continue
-                    if member.isdev() or member.isfifo():
-                        continue
-                    if member.issym() or member.islnk():
-                        if os.path.isabs(member.linkname):
-                            # The legacy app's absolute /backup/unifi link is not
-                            # used by UniFi OS and must not escape the staging dir.
-                            continue
-                        link_parts = member.linkname.replace(os.sep, "/").split("/")
-                        if ".." in link_parts:
-                            continue
-                    yield member.replace(name=name)
-
-            inner.extractall(path=staging, members=safe_members(), filter="tar")
+        stream = inner_archive(outer, normalized_members(outer), slug)
+        with tarfile.open(fileobj=stream, mode="r:gz") as inner:
+            settings = addon_settings(inner, normalized_members(inner))
+            inner.extractall(path=staging, members=legacy_members(inner), filter="tar")
     return settings
 
 
@@ -291,6 +297,79 @@ def apply_settings(token, settings):
         log("migrated legacy options and host port mappings")
 
 
+def take_backup(token, slug):
+    created = request(
+        "POST",
+        "/backups/new/partial",
+        token,
+        {
+            "name": "UniFi OS migration",
+            "addons": [slug],
+            "compressed": True,
+            "background": False,
+        },
+        timeout=1800,
+    )
+    backup_slug = created.get("slug")
+    if not isinstance(backup_slug, str) or not backup_slug:
+        raise LegacyError("Supervisor did not return a temporary backup slug")
+    backup_file = MIGRATION / f"backup-{backup_slug}.tar"
+    download(
+        f"{SUPERVISOR}/backups/{urllib.parse.quote(backup_slug, safe='')}/download",
+        token,
+        backup_file,
+    )
+    return backup_slug, backup_file
+
+
+def delete_backup(token, backup_slug):
+    if backup_slug is None:
+        return
+    try:
+        request(
+            "DELETE",
+            f"/backups/{urllib.parse.quote(backup_slug, safe='')}",
+            token,
+        )
+    except LegacyError as err:
+        log(f"warning: could not delete the temporary backup: {err}")
+
+
+def restore_old_app(token, slug, info, watchdog_changed, original_watchdog):
+    if not watchdog_changed:
+        return
+    try:
+        addon_action(token, slug, "options", {"watchdog": original_watchdog})
+    except LegacyError as err:
+        log(f"warning: could not restore the old app watchdog: {err}")
+    if info.get("state") in ("started", "startup"):
+        try:
+            addon_action(token, slug, "start")
+        except LegacyError as err:
+            log(f"warning: could not restart the old app: {err}")
+
+
+def alert_migration_failed(slug, err):
+    subprocess.run(
+        [
+            "/usr/local/bin/unifi-os-alert",
+            "legacy_migration_failed",
+            "Legacy UniFi data could not be migrated",
+            f"Migration from {slug} failed: {err}. No UniFi OS data was changed; see the app log.",
+        ],
+        check=False,
+    )
+
+
+def cleanup_temp(staging, backup_file, backup_slug, token, lock_fd):
+    if staging is not None and staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+    if backup_file is not None:
+        backup_file.unlink(missing_ok=True)
+    delete_backup(token, backup_slug)
+    os.close(lock_fd)
+
+
 def migrate(token, slug, info):
     MIGRATION.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock_fd = os.open(MIGRATION / "lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -304,36 +383,11 @@ def migrate(token, slug, info):
     backup_slug = None
     try:
         log(f"migrating from {slug} version {info.get('version')}")
-        request(
-            "POST",
-            f"/addons/{urllib.parse.quote(slug, safe='')}/options",
-            token,
-            {"watchdog": False},
-        )
+        addon_action(token, slug, "options", {"watchdog": False})
         watchdog_changed = True
         if info.get("state") in ("started", "startup"):
-            request("POST", f"/addons/{urllib.parse.quote(slug, safe='')}/stop", token)
-        created = request(
-            "POST",
-            "/backups/new/partial",
-            token,
-            {
-                "name": "UniFi OS migration",
-                "addons": [slug],
-                "compressed": True,
-                "background": False,
-            },
-            timeout=1800,
-        )
-        backup_slug = created.get("slug")
-        if not isinstance(backup_slug, str) or not backup_slug:
-            raise LegacyError("Supervisor did not return a temporary backup slug")
-        backup_file = MIGRATION / f"backup-{backup_slug}.tar"
-        download(
-            f"{SUPERVISOR}/backups/{urllib.parse.quote(backup_slug, safe='')}/download",
-            token,
-            backup_file,
-        )
+            addon_action(token, slug, "stop")
+        backup_slug, backup_file = take_backup(token, slug)
         staging = Path(tempfile.mkdtemp(prefix="staging-", dir=MIGRATION))
         os.chmod(staging, 0o700)
         settings = extract_data(backup_file, slug, staging)
@@ -347,61 +401,15 @@ def migrate(token, slug, info):
                 "migrated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             },
         )
-        try:
-            request(
-                "DELETE",
-                f"/backups/{urllib.parse.quote(backup_slug, safe='')}",
-                token,
-            )
-        except LegacyError as err:
-            log(f"warning: could not delete the temporary backup: {err}")
+        delete_backup(token, backup_slug)
         backup_slug = None
         log("migration complete")
     except BaseException as err:
-        if watchdog_changed:
-            try:
-                request(
-                    "POST",
-                    f"/addons/{urllib.parse.quote(slug, safe='')}/options",
-                    token,
-                    {"watchdog": original_watchdog},
-                )
-            except LegacyError as restore_err:
-                log(f"warning: could not restore the old app watchdog: {restore_err}")
-            if info.get("state") in ("started", "startup"):
-                try:
-                    request(
-                        "POST",
-                        f"/addons/{urllib.parse.quote(slug, safe='')}/start",
-                        token,
-                    )
-                except LegacyError as restore_err:
-                    log(f"warning: could not restart the old app: {restore_err}")
-        subprocess.run(
-            [
-                "/usr/local/bin/unifi-os-alert",
-                "legacy_migration_failed",
-                "Legacy UniFi data could not be migrated",
-                f"Migration from {slug} failed: {err}. No UniFi OS data was changed; see the app log.",
-            ],
-            check=False,
-        )
+        restore_old_app(token, slug, info, watchdog_changed, original_watchdog)
+        alert_migration_failed(slug, err)
         raise
     finally:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-        if backup_file is not None:
-            backup_file.unlink(missing_ok=True)
-        if backup_slug is not None:
-            try:
-                request(
-                    "DELETE",
-                    f"/backups/{urllib.parse.quote(backup_slug, safe='')}",
-                    token,
-                )
-            except LegacyError as err:
-                log(f"warning: could not delete the temporary backup: {err}")
-        os.close(lock_fd)
+        cleanup_temp(staging, backup_file, backup_slug, token, lock_fd)
 
 
 def cleanup(token):
@@ -419,12 +427,7 @@ def cleanup(token):
     removed = False
     if installed:
         log(f"uninstalling migrated legacy add-on {slug}")
-        request(
-            "POST",
-            f"/addons/{urllib.parse.quote(slug, safe='')}/uninstall",
-            token,
-            {"remove_config": False},
-        )
+        addon_action(token, slug, "uninstall", {"remove_config": False})
         removed = True
     atomic_write(
         CLEANUP,
@@ -438,20 +441,11 @@ def cleanup(token):
 
 def main():
     parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--token-stdin", action="store_true")
-    group.add_argument("--token-file")
+    parser.add_argument("--token-stdin", action="store_true")
     parser.add_argument("--cleanup", action="store_true")
     args = parser.parse_args()
 
-    if args.token_stdin:
-        token = sys.stdin.readline().strip()
-    else:
-        try:
-            token = Path(args.token_file).read_text().strip()
-        except OSError as err:
-            log(f"could not read the Supervisor token: {err}")
-            return 1
+    token = sys.stdin.readline().strip()
     if not token:
         log("Supervisor token is unavailable")
         return 1

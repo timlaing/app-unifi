@@ -134,5 +134,5 @@ if [[ -f /var/lib/unifi-os-app/legacy-migration/complete \
     && ! -f /var/lib/unifi-os-app/legacy-migration/cleanup-done \
     && -f /run/unifi-ha-api/token ]]; then
     python3 /usr/share/unifi-os/legacy-addon.py \
-        --token-file /run/unifi-ha-api/token --cleanup || true
+        --cleanup < /run/unifi-ha-api/token || true
 fi
