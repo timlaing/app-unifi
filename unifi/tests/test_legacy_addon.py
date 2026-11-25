@@ -39,10 +39,10 @@ def make_backup(path, slug=LEGACY):
         member.size = len(settings)
         inner.addfile(member, io.BytesIO(settings))
         data = b"unifi.db.extraargs=--smallfiles\n"
-        member = tarfile.TarInfo("data/system.properties")
+        member = tarfile.TarInfo("data/unifi/data/system.properties")
         member.size = len(data)
         inner.addfile(member, io.BytesIO(data))
-        directory = tarfile.TarInfo("data/db")
+        directory = tarfile.TarInfo("data/unifi/data/db")
         directory.type = tarfile.DIRTYPE
         inner.addfile(directory)
     payload = inner_bytes.getvalue()
@@ -71,6 +71,7 @@ class LegacyAddonTest(unittest.TestCase):
             mock.patch.object(self.module, "TARGET_DATA", root / "unifi" / "data"),
             mock.patch.object(sys, "argv", ["legacy-addon.py", "--token-stdin"]),
             mock.patch.object(sys, "stdin", io.StringIO("secret-token\n")),
+            mock.patch.object(self.module.subprocess, "run"),
         ]
         for patcher in patches:
             patcher.start()
@@ -154,6 +155,35 @@ class LegacyAddonTest(unittest.TestCase):
             result, log = self._run()
         self.assertEqual(result, 0)
         self.assertIn("no legacy", log)
+
+    def test_receipt_is_checked_before_legacy_discovery(self):
+        (self.migration / "complete").write_text(json.dumps({"slug": LEGACY}))
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("legacy discovery must not run after migration")
+
+        with mock.patch.object(self.module, "find_legacy", unexpected):
+            result, log = self._run()
+        self.assertEqual(result, 0)
+        self.assertIn("already migrated", log)
+
+    def test_failed_download_removes_backup_and_partial_file(self):
+        calls = []
+
+        def download(url, token, destination, timeout=1800):
+            Path(destination).write_bytes(b"partial")
+            raise self.module.LegacyError("download failed")
+
+        with (
+            mock.patch.object(self.module, "request", self._dispatcher(calls=calls)),
+            mock.patch.object(self.module, "download", download),
+        ):
+            result, log = self._run()
+        self.assertEqual(result, 1)
+        self.assertIn("download failed", log)
+        self.assertIn(("DELETE", "/backups/bak", None), calls)
+        self.assertFalse((self.migration / "backup-bak.tar").exists())
+        self.assertFalse((self.migration / "complete").exists())
 
     def test_successful_migration_moves_data_and_host_ports(self):
         calls = []

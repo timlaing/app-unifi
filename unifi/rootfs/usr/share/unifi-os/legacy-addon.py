@@ -269,7 +269,9 @@ def extract_data(backup_path, slug, staging):
 
 
 def install_data(staging):
-    source = staging / "data"
+    # Supervisor archives the old app's /data as data/, and the Network app
+    # kept its controller data in /data/unifi/data.
+    source = staging / "data" / "unifi" / "data"
     if not (source / "system.properties").is_file():
         raise LegacyError("legacy data has no system.properties")
     TARGET_DATA.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -321,11 +323,16 @@ def take_backup(token, slug):
     if not isinstance(backup_slug, str) or not backup_slug:
         raise LegacyError("Supervisor did not return a temporary backup slug")
     backup_file = MIGRATION / f"backup-{backup_slug}.tar"
-    download(
-        f"{SUPERVISOR}/backups/{urllib.parse.quote(backup_slug, safe='')}/download",
-        token,
-        backup_file,
-    )
+    try:
+        download(
+            f"{SUPERVISOR}/backups/{urllib.parse.quote(backup_slug, safe='')}/download",
+            token,
+            backup_file,
+        )
+    except BaseException:
+        backup_file.unlink(missing_ok=True)
+        delete_backup(token, backup_slug)
+        raise
     return backup_slug, backup_file
 
 
@@ -461,6 +468,11 @@ def main():
         if args.cleanup:
             cleanup(token)
             return 0
+        # After migration the old add-on is ignored entirely, even if someone
+        # reinstalls a different version of it later.
+        if RECEIPT.exists():
+            log("legacy data was already migrated")
+            return 0
         legacy = find_legacy(token)
         if legacy is None:
             log("no legacy UniFi Network add-on is installed")
@@ -474,9 +486,6 @@ def main():
                 "Nothing was changed; install the final upstream version and start again."
             )
             return 1
-        if RECEIPT.exists():
-            log("legacy data was already migrated")
-            return 0
         migrate(token, slug, info)
         return 0
     except LegacyError as err:
