@@ -58,7 +58,7 @@ this app's first start.
 2. A temporary partial backup of the old add-on is made and downloaded.
 3. Its Network data, settings and host port mappings are copied into this app.
 4. The temporary backup is deleted and this app starts normally.
-5. After a successful start, the old add-on is uninstalled once. A later
+5. After Ubiquiti's setup wizard reports the import complete and the **UniFi Network migration setup needed** notification disappears, the old add-on is uninstalled once. A later
    reinstallation of the old add-on is left alone.
 
 Any other old-app version is refused in the **app log** and nothing is changed;

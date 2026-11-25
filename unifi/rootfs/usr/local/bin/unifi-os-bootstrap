@@ -127,12 +127,3 @@ fi
 install -d -m 0700 /run/unifi-os-app
 : > /run/unifi-os-app/started
 alert --startup-complete
-
-# Remove the old add-on once, after a successful start. A failed Supervisor
-# call must not fail this start; the next one retries until cleanup-done exists.
-if [[ -f /var/lib/unifi-os-app/legacy-migration/complete \
-    && ! -f /var/lib/unifi-os-app/legacy-migration/cleanup-done \
-    && -f /run/unifi-ha-api/token ]]; then
-    python3 /usr/share/unifi-os/legacy-addon.py \
-        --cleanup < /run/unifi-ha-api/token || true
-fi

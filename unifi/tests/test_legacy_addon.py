@@ -251,10 +251,16 @@ class LegacyAddonTest(unittest.TestCase):
         self.assertLess(helper, restore)
         self.assertLess(helper, systemd)
         bootstrap = (APP / "rootfs/usr/local/bin/unifi-os-bootstrap").read_text()
-        self.assertIn("/usr/share/unifi-os/legacy-addon.py", bootstrap)
+        self.assertNotIn("legacy-addon.py", bootstrap)
+        unit = (
+            APP / "rootfs/etc/systemd/system/unifi-os-setup-notification.service"
+        ).read_text()
+        self.assertIn("Type=oneshot", unit)
+        self.assertIn("+ExecStartPost=", unit)
+        self.assertIn("/usr/share/unifi-os/legacy-addon.py --cleanup", unit)
         self.assertLess(
-            bootstrap.index(": > /run/unifi-os-app/started"),
-            bootstrap.index("/usr/share/unifi-os/legacy-addon.py"),
+            unit.index("/usr/share/unifi-os/setup-notification.py"),
+            unit.index("+ExecStartPost="),
         )
 
 
