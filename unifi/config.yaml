@@ -17,6 +17,10 @@ arch:
   - amd64
 init: false
 homeassistant_api: true
+# One-shot migration from the deprecated upstream add-on: query installed apps,
+# stop the old one, and make/delete a temporary partial backup of its data.
+hassio_api: true
+hassio_role: manager
 timeout: 300
 # Supervisor stops the app for each backup. The stop writes a verified
 # checkpoint of the nested runtime; its raw directories are excluded because a
