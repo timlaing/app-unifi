@@ -220,24 +220,31 @@ def inner_archive(outer, members, slug):
     return stream
 
 
+def member_name(member):
+    name = member.name
+    while name.startswith("./"):
+        name = name[2:]
+    return name.lstrip("/")
+
+
+def safe_link(member):
+    if not (member.issym() or member.islnk()):
+        return True
+    # The legacy app's absolute /backup/unifi link is not used by UniFi OS and
+    # must not escape the staging directory.
+    if os.path.isabs(member.linkname):
+        return False
+    return ".." not in member.linkname.replace(os.sep, "/").split("/")
+
+
 def legacy_members(inner):
     for member in inner.getmembers():
-        name = member.name
-        while name.startswith("./"):
-            name = name[2:]
-        name = name.lstrip("/")
+        name = member_name(member)
         parts = name.replace(os.sep, "/").split("/")
         if not name or ".." in parts or not name.startswith("data/"):
             continue
-        if member.isdev() or member.isfifo():
+        if member.isdev() or member.isfifo() or not safe_link(member):
             continue
-        if member.issym() or member.islnk():
-            if os.path.isabs(member.linkname):
-                # The legacy app's absolute /backup/unifi link is not used by
-                # UniFi OS and must not escape the staging directory.
-                continue
-            if ".." in member.linkname.replace(os.sep, "/").split("/"):
-                continue
         yield member.replace(name=name)
 
 

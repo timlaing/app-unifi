@@ -117,6 +117,19 @@ class LegacyAddonTest(unittest.TestCase):
 
         return request
 
+    def _run_with_backup(self, calls):
+        backup = self.migration / "fixture.tar"
+        make_backup(backup)
+
+        def download(url, token, destination, timeout=1800):
+            Path(destination).write_bytes(backup.read_bytes())
+
+        with (
+            mock.patch.object(self.module, "request", self._dispatcher(calls=calls)),
+            mock.patch.object(self.module, "download", download),
+        ):
+            return self._run()
+
     def test_unsupported_version_refuses_before_any_mutation(self):
         calls = []
         with mock.patch.object(
@@ -144,17 +157,7 @@ class LegacyAddonTest(unittest.TestCase):
 
     def test_successful_migration_moves_data_and_host_ports(self):
         calls = []
-        backup = self.migration / "fixture.tar"
-        make_backup(backup)
-
-        def download(url, token, destination, timeout=1800):
-            Path(destination).write_bytes(backup.read_bytes())
-
-        with (
-            mock.patch.object(self.module, "request", self._dispatcher(calls=calls)),
-            mock.patch.object(self.module, "download", download),
-        ):
-            result, log = self._run()
+        result, log = self._run_with_backup(calls)
         self.assertEqual(result, 0)
         self.assertIn("migration complete", log)
 
@@ -191,17 +194,7 @@ class LegacyAddonTest(unittest.TestCase):
         self.module.TARGET_DATA.mkdir(parents=True)
         (self.module.TARGET_DATA / "system.properties").write_text("keep me")
         calls = []
-        backup = self.migration / "fixture.tar"
-        make_backup(backup)
-
-        def download(url, token, destination, timeout=1800):
-            Path(destination).write_bytes(backup.read_bytes())
-
-        with (
-            mock.patch.object(self.module, "request", self._dispatcher(calls=calls)),
-            mock.patch.object(self.module, "download", download),
-        ):
-            result, log = self._run()
+        result, log = self._run_with_backup(calls)
         self.assertEqual(result, 0)
         self.assertIn("not overwriting", log)
         self.assertEqual(
