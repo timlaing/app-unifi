@@ -65,6 +65,15 @@ mount --bind /lib/unifi/data /var/lib/unifi-os-app
 mkdir -p /var/lib/unifi-os-app/uos/bootstrap
 chmod 0700 /var/lib/unifi-os-app/uos/bootstrap
 
+# One-shot migration from the deprecated upstream UniFi Network add-on. The
+# helper only refuses on an unsupported version or a failed migration; those
+# reasons are logged here, and a real migration failure also records an alert
+# that refuse() delivers before systemd starts.
+if ! printf '%s' "${notification_token}" \
+    | python3 /usr/share/unifi-os/legacy-addon.py --token-stdin; then
+    refuse
+fi
+
 # A flag left from the previous run means that stop did not finish its
 # checkpoint (or the start failed), so a backup of that stop cannot restore
 # UniFi OS. Check before anything below can invalidate or replace it.
