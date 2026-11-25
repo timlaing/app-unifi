@@ -216,7 +216,7 @@ class LegacyAddonTest(unittest.TestCase):
             self.module.cleanup("token")
         self.assertEqual(
             [call for call in calls if call[0] == "POST"],
-            [("POST", f"/addons/{LEGACY}/uninstall", {"remove_config": False})],
+            [("POST", f"/addons/{LEGACY}/uninstall", {"remove_config": True})],
         )
         self.assertTrue(self.module.CLEANUP.exists())
 

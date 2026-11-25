@@ -427,7 +427,7 @@ def cleanup(token):
     removed = False
     if installed:
         log(f"uninstalling migrated legacy add-on {slug}")
-        addon_action(token, slug, "uninstall", {"remove_config": False})
+        addon_action(token, slug, "uninstall", {"remove_config": True})
         removed = True
     atomic_write(
         CLEANUP,
