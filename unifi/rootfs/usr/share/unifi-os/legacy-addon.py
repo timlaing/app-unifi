@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tarfile
 import tempfile
@@ -27,6 +26,7 @@ DATA_ROOT = Path("/var/lib/unifi-os-app")
 MIGRATION = DATA_ROOT / "legacy-migration"
 RECEIPT = MIGRATION / "complete"
 CLEANUP = MIGRATION / "cleanup-done"
+FAILED = MIGRATION / "failed"
 TARGET_DATA = DATA_ROOT / "unifi" / "data"
 
 # Only settings and container-port keys that this app also declares are copied.
@@ -64,6 +64,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def log(message):
     print(f"legacy add-on migration: {message}", file=sys.stderr, flush=True)
+
+
+def log_error(message):
+    print(f"ERROR: legacy add-on migration: {message}", file=sys.stderr, flush=True)
 
 
 def request(method, path, token, payload=None, timeout=60):
@@ -149,6 +153,34 @@ def read_receipt():
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def is_clean():
+    """True when this app's data volume holds no UniFi data of its own."""
+    if not DATA_ROOT.is_dir():
+        return True
+    try:
+        entries = list(DATA_ROOT.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if entry.name in ("options.json", MIGRATION.name):
+            continue
+        if entry.name != "uos" or not entry.is_dir():
+            return False
+        try:
+            children = list(entry.iterdir())
+        except OSError:
+            return False
+        for child in children:
+            if child.name != "bootstrap" or not child.is_dir():
+                return False
+            try:
+                if any(child.iterdir()):
+                    return False
+            except OSError:
+                return False
+    return True
 
 
 def find_legacy(token):
@@ -349,29 +381,19 @@ def delete_backup(token, backup_slug):
         log(f"warning: could not delete the temporary backup: {err}")
 
 
-def restore_old_app(token, slug, info, watchdog_changed, original_watchdog):
-    if not watchdog_changed:
-        return
-    try:
-        addon_action(token, slug, "options", {"watchdog": original_watchdog})
-    except LegacyError as err:
-        log(f"warning: could not restore the old app watchdog: {err}")
-    if info.get("state") in ("started", "startup"):
-        try:
-            addon_action(token, slug, "start")
-        except LegacyError as err:
-            log(f"warning: could not restart the old app: {err}")
-
-
-def alert_migration_failed(slug, err):
-    subprocess.run(
-        [
-            "/usr/local/bin/unifi-os-alert",
-            "legacy_migration_failed",
-            "Legacy UniFi data could not be migrated",
-            f"Migration from {slug} failed: {err}. No UniFi OS data was changed; see the app log.",
-        ],
-        check=False,
+def fail_migration(token, slug, err):
+    """Leave the partial result in place, record failure, keep starting."""
+    atomic_write(
+        FAILED,
+        {
+            "slug": slug,
+            "error": str(err),
+            "at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        },
+    )
+    log_error(
+        f"migration from {slug} failed: {err}. Existing data was left as-is, "
+        "the old add-on was left stopped, and the temporary backup was deleted."
     )
 
 
@@ -390,15 +412,12 @@ def migrate(token, slug, info):
     import fcntl
 
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    original_watchdog = bool(info.get("watchdog", True))
-    watchdog_changed = False
     staging = None
     backup_file = None
     backup_slug = None
     try:
         log(f"migrating from {slug} version {info.get('version')}")
         addon_action(token, slug, "options", {"watchdog": False})
-        watchdog_changed = True
         if info.get("state") in ("started", "startup"):
             addon_action(token, slug, "stop")
         backup_slug, backup_file = take_backup(token, slug)
@@ -412,18 +431,41 @@ def migrate(token, slug, info):
             {
                 "slug": slug,
                 "version": LEGACY_VERSION,
+                "source": "migration",
                 "migrated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             },
         )
         delete_backup(token, backup_slug)
         backup_slug = None
+        FAILED.unlink(missing_ok=True)
         log("migration complete")
     except BaseException as err:
-        restore_old_app(token, slug, info, watchdog_changed, original_watchdog)
-        alert_migration_failed(slug, err)
-        raise
-    finally:
         cleanup_temp(staging, backup_file, backup_slug, token, lock_fd)
+        staging = backup_file = backup_slug = None
+        fail_migration(token, slug, err)
+    else:
+        os.close(lock_fd)
+
+
+def handoff(token, slug, info):
+    """Retained/restored data is already present: stop the old add-on only."""
+    try:
+        addon_action(token, slug, "options", {"watchdog": False})
+        if info.get("state") in ("started", "startup"):
+            addon_action(token, slug, "stop")
+    except LegacyError as err:
+        log_error(f"could not stop the legacy add-on {slug}: {err}")
+        return
+    atomic_write(
+        RECEIPT,
+        {
+            "slug": slug,
+            "version": LEGACY_VERSION,
+            "source": "existing_data",
+            "migrated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        },
+    )
+    log("existing app data retained; legacy add-on stopped for later uninstall")
 
 
 def cleanup(token):
@@ -473,6 +515,9 @@ def main():
         if RECEIPT.exists():
             log("legacy data was already migrated")
             return 0
+        if FAILED.exists():
+            log_error("a previous migration failed; no legacy data will be touched")
+            return 0
         legacy = find_legacy(token)
         if legacy is None:
             log("no legacy UniFi Network add-on is installed")
@@ -480,13 +525,16 @@ def main():
         slug, info = legacy
         version = str(info.get("version", "")).lstrip("v")
         if version != LEGACY_VERSION:
-            log(
+            log_error(
                 f"legacy_addon_version_unsupported: {slug} has version "
                 f"{info.get('version')!r}; exactly {LEGACY_VERSION} is supported. "
                 "Nothing was changed; install the final upstream version and start again."
             )
             return 1
-        migrate(token, slug, info)
+        if is_clean():
+            migrate(token, slug, info)
+        else:
+            handoff(token, slug, info)
         return 0
     except LegacyError as err:
         log(str(err))

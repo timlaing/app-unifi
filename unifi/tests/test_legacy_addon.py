@@ -65,13 +65,14 @@ class LegacyAddonTest(unittest.TestCase):
         self.migration = root / "legacy-migration"
         self.migration.mkdir(mode=0o700)
         patches = [
+            mock.patch.object(self.module, "DATA_ROOT", root),
             mock.patch.object(self.module, "MIGRATION", self.migration),
             mock.patch.object(self.module, "RECEIPT", self.migration / "complete"),
             mock.patch.object(self.module, "CLEANUP", self.migration / "cleanup-done"),
+            mock.patch.object(self.module, "FAILED", self.migration / "failed"),
             mock.patch.object(self.module, "TARGET_DATA", root / "unifi" / "data"),
             mock.patch.object(sys, "argv", ["legacy-addon.py", "--token-stdin"]),
             mock.patch.object(sys, "stdin", io.StringIO("secret-token\n")),
-            mock.patch.object(self.module.subprocess, "run"),
         ]
         for patcher in patches:
             patcher.start()
@@ -167,6 +168,30 @@ class LegacyAddonTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("already migrated", log)
 
+    def test_existing_data_hands_off_without_migration(self):
+        self.module.TARGET_DATA.mkdir(parents=True)
+        (self.module.TARGET_DATA / "system.properties").write_text("retained")
+        calls = []
+        with mock.patch.object(self.module, "request", self._dispatcher(calls=calls)):
+            result, log = self._run()
+        self.assertEqual(result, 0)
+        self.assertIn("existing app data retained", log)
+        receipt = json.loads((self.migration / "complete").read_text())
+        self.assertEqual(receipt["source"], "existing_data")
+        self.assertIn(("POST", f"/addons/{LEGACY}/options", {"watchdog": False}), calls)
+        self.assertNotIn(("POST", "/backups/new/partial", mock.ANY), calls)
+
+    def test_failed_marker_skips_legacy_discovery(self):
+        self.module.FAILED.write_text(json.dumps({"slug": LEGACY}))
+
+        def unexpected(*args, **kwargs):
+            raise AssertionError("legacy discovery must not run after a failure")
+
+        with mock.patch.object(self.module, "find_legacy", unexpected):
+            result, log = self._run()
+        self.assertEqual(result, 0)
+        self.assertIn("previous migration failed", log)
+
     def test_failed_download_removes_backup_and_partial_file(self):
         calls = []
 
@@ -179,11 +204,18 @@ class LegacyAddonTest(unittest.TestCase):
             mock.patch.object(self.module, "download", download),
         ):
             result, log = self._run()
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 0)
+        self.assertIn("ERROR: legacy add-on migration:", log)
         self.assertIn("download failed", log)
         self.assertIn(("DELETE", "/backups/bak", None), calls)
         self.assertFalse((self.migration / "backup-bak.tar").exists())
         self.assertFalse((self.migration / "complete").exists())
+        self.assertTrue(self.module.FAILED.exists())
+        self.assertIn(("POST", f"/addons/{LEGACY}/options", {"watchdog": False}), calls)
+        self.assertNotIn(
+            ("POST", f"/addons/{LEGACY}/options", {"watchdog": True}), calls
+        )
+        self.assertNotIn(("POST", f"/addons/{LEGACY}/start", None), calls)
 
     def test_successful_migration_moves_data_and_host_ports(self):
         calls = []
@@ -226,9 +258,13 @@ class LegacyAddonTest(unittest.TestCase):
         calls = []
         result, log = self._run_with_backup(calls)
         self.assertEqual(result, 0)
-        self.assertIn("not overwriting", log)
+        self.assertIn("existing app data retained", log)
         self.assertEqual(
             (self.module.TARGET_DATA / "system.properties").read_text(), "keep me"
+        )
+        self.assertEqual(
+            json.loads((self.migration / "complete").read_text())["source"],
+            "existing_data",
         )
 
     def test_cleanup_uninstalls_once(self):
@@ -252,6 +288,17 @@ class LegacyAddonTest(unittest.TestCase):
         self.assertLess(helper, systemd)
         bootstrap = (APP / "rootfs/usr/local/bin/unifi-os-bootstrap").read_text()
         self.assertNotIn("legacy-addon.py", bootstrap)
+        guard = "if [[ ! -f /var/lib/unifi-os-app/legacy-migration/failed ]]; then"
+        self.assertIn(guard, bootstrap)
+        self.assertLess(
+            bootstrap.index(guard),
+            bootstrap.index("/usr/local/bin/unifi-os-prepare-mongo"),
+        )
+        service = (APP / "rootfs/etc/systemd/system/unifi.service").read_text()
+        self.assertIn(
+            "ConditionPathExists=!/var/lib/unifi-os-app/legacy-migration/failed",
+            service,
+        )
         unit = (
             APP / "rootfs/etc/systemd/system/unifi-os-setup-notification.service"
         ).read_text()
