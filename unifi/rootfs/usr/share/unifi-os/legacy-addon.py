@@ -57,6 +57,16 @@ class LegacyError(Exception):
     """A reason to refuse startup without changing any data."""
 
 
+MIGRATION_ERRORS = (
+    LegacyError,
+    OSError,
+    ValueError,
+    tarfile.TarError,
+    KeyError,
+    TypeError,
+)
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -155,31 +165,36 @@ def read_receipt():
     return data if isinstance(data, dict) else None
 
 
+def entries(path):
+    try:
+        return list(path.iterdir())
+    except OSError:
+        return None
+
+
+def clean_uos(path):
+    children = entries(path)
+    if children is None:
+        return False
+    for child in children:
+        if child.name != "bootstrap" or not child.is_dir():
+            return False
+        pending = entries(child)
+        if pending is None or pending:
+            return False
+    return True
+
+
 def is_clean():
     """True when this app's data volume holds no UniFi data of its own."""
-    if not DATA_ROOT.is_dir():
-        return True
-    try:
-        entries = list(DATA_ROOT.iterdir())
-    except OSError:
+    content = entries(DATA_ROOT)
+    if content is None:
         return False
-    for entry in entries:
+    for entry in content:
         if entry.name in ("options.json", MIGRATION.name):
             continue
-        if entry.name != "uos" or not entry.is_dir():
+        if entry.name != "uos" or not entry.is_dir() or not clean_uos(entry):
             return False
-        try:
-            children = list(entry.iterdir())
-        except OSError:
-            return False
-        for child in children:
-            if child.name != "bootstrap" or not child.is_dir():
-                return False
-            try:
-                if any(child.iterdir()):
-                    return False
-            except OSError:
-                return False
     return True
 
 
@@ -361,7 +376,7 @@ def take_backup(token, slug):
             token,
             backup_file,
         )
-    except BaseException:
+    except (LegacyError, OSError):
         backup_file.unlink(missing_ok=True)
         delete_backup(token, backup_slug)
         raise
@@ -381,7 +396,7 @@ def delete_backup(token, backup_slug):
         log(f"warning: could not delete the temporary backup: {err}")
 
 
-def fail_migration(token, slug, err):
+def fail_migration(slug, err):
     """Leave the partial result in place, record failure, keep starting."""
     atomic_write(
         FAILED,
@@ -439,10 +454,10 @@ def migrate(token, slug, info):
         backup_slug = None
         FAILED.unlink(missing_ok=True)
         log("migration complete")
-    except BaseException as err:
+    except MIGRATION_ERRORS as err:
         cleanup_temp(staging, backup_file, backup_slug, token, lock_fd)
         staging = backup_file = backup_slug = None
-        fail_migration(token, slug, err)
+        fail_migration(slug, err)
     else:
         os.close(lock_fd)
 
