@@ -518,8 +518,10 @@ def main():
 
     token = sys.stdin.readline().strip()
     if not token:
-        log("Supervisor token is unavailable")
-        return 1
+        # Standalone image tests and direct docker runs have no Supervisor.
+        # Nothing can be migrated there, but the app itself must still start.
+        log("no Supervisor API context; skipping legacy add-on migration")
+        return 0
 
     try:
         if args.cleanup:

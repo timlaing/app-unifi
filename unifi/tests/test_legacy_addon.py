@@ -146,6 +146,12 @@ class LegacyAddonTest(unittest.TestCase):
         self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "GET"])
         self.assertFalse((self.migration / "complete").exists())
 
+    def test_missing_supervisor_token_is_a_noop(self):
+        with mock.patch.object(sys, "stdin", io.StringIO("")):
+            result, log = self._run()
+        self.assertEqual(result, 0)
+        self.assertIn("skipping legacy add-on migration", log)
+
     def test_absent_legacy_addon_is_a_noop(self):
         def request(method, path, token, payload=None, timeout=60):
             if path == "/addons/self/info":
