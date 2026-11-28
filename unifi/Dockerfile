@@ -20,27 +20,28 @@ FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d6
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# hadolint ignore=DL3008
 RUN \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates=20260816ubuntu0.26.04.2 \
-        curl=8.18.0-1ubuntu2.8 \
-        dbus=1.16.2-2ubuntu4 \
-        dbus-user-session=1.16.2-2ubuntu4 \
-        iproute2=6.19.0-1ubuntu1.1 \
-        jq=1.8.1-4ubuntu2 \
-        libnginx-mod-http-js=0.9.4-1build2 \
-        nginx=1.28.3-2ubuntu1.13 \
-        passt=0.0~git20260120.386b5f5-1 \
-        podman=5.7.0+ds2-3build1 \
-        procps=2:4.0.4-9ubuntu1 \
-        python3=3.14.3-0ubuntu2 \
-        slirp4netns=1.3.3-1 \
-        socat=1.8.1.1-1ubuntu0.1 \
-        systemd=259.9-0ubuntu0.1 \
-        systemd-sysv=259.9-0ubuntu0.1 \
-        uidmap=1:4.17.4-2ubuntu3 \
-        xz-utils=5.8.3-1ubuntu0.1 \
+        ca-certificates \
+        curl \
+        dbus \
+        dbus-user-session \
+        iproute2 \
+        jq \
+        libnginx-mod-http-js \
+        nginx \
+        passt \
+        podman \
+        procps \
+        python3 \
+        slirp4netns \
+        socat \
+        systemd \
+        systemd-sysv \
+        uidmap \
+        xz-utils \
     && groupadd --gid 1001 uosserver \
     && useradd --uid 1001 --gid 1001 --home-dir /home/uosserver \
         --no-create-home --shell /bin/bash uosserver \

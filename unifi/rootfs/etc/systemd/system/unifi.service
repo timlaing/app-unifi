@@ -2,6 +2,7 @@
 # App-owned mount-only unit; the real Network service is inside Podman.
 Description=Legacy UniFi layout service (bind mount only, no controller process)
 ConditionPathExists=/var/lib/unifi-os-app/unifi/data/system.properties
+ConditionPathExists=!/var/lib/unifi-os-app/legacy-migration/failed
 Before=unifi-os-bootstrap.service uosserver-updater.service
 
 [Service]

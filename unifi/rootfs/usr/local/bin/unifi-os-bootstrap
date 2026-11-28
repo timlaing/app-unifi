@@ -25,17 +25,21 @@ step() {
     fi
 }
 
-# Recheck the mount-only layout even if the vendor previously disabled the
-# harmless unit. A failed layout must not masquerade as legacy discovery.
-if [[ -f /var/lib/unifi-os-app/unifi/data/system.properties ]]; then
-    step legacy_layout_failed "Retained UniFi Network data could not be attached" \
-        "The data of the previous UniFi Network app could not be mounted where UniFi OS expects it, so UniFi OS was not started and nothing was imported or changed. See the app log for the reason." \
-        /usr/local/bin/unifi-os-legacy-layout
-fi
+# A failed legacy migration leaves uncommitted data behind; do not attach or
+# prepare it. The migration helper logged the failure to the app log.
+if [[ ! -f /var/lib/unifi-os-app/legacy-migration/failed ]]; then
+    # Recheck the mount-only layout even if the vendor previously disabled the
+    # harmless unit. A failed layout must not masquerade as legacy discovery.
+    if [[ -f /var/lib/unifi-os-app/unifi/data/system.properties ]]; then
+        step legacy_layout_failed "Retained UniFi Network data could not be attached" \
+            "The data of the previous UniFi Network app could not be mounted where UniFi OS expects it, so UniFi OS was not started and nothing was imported or changed. See the app log for the reason." \
+            /usr/local/bin/unifi-os-legacy-layout
+    fi
 
-step mongo_preparation_failed "Retained UniFi Network database could not be prepared" \
-    "Upgrading the previous UniFi Network database for UniFi OS failed, so UniFi OS was not started. A verified copy of the original database files is kept in the app data (mongo-originals/originals.tar) once it has been created. See the app log for the failing step." \
-    /usr/local/bin/unifi-os-prepare-mongo
+    step mongo_preparation_failed "Retained UniFi Network database could not be prepared" \
+        "Upgrading the previous UniFi Network database for UniFi OS failed, so UniFi OS was not started. A verified copy of the original database files is kept in the app data (mongo-originals/originals.tar) once it has been created. See the app log for the failing step." \
+        /usr/local/bin/unifi-os-prepare-mongo
+fi
 
 install_vendor() {
     step vendor_install_failed "UniFi OS installation did not finish" \

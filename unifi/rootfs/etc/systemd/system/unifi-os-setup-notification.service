@@ -5,8 +5,15 @@ After=network.target unifi-os-bootstrap.service
 ConditionPathExists=/run/unifi-ha-api/token
 
 [Service]
-Type=exec
+# oneshot so ExecStartPost runs only after the script exits successfully,
+# which is exactly when the setup notification has been dismissed.
+Type=oneshot
 ExecStart=/usr/bin/python3 /usr/share/unifi-os/setup-notification.py
+# Remove the migrated legacy add-on only after setup/import completed. Run as
+# root: the migration receipt is root-owned. Never fail the notification unit.
+ExecStartPost=+/bin/sh -c '/usr/bin/python3 /usr/share/unifi-os/legacy-addon.py --cleanup < /run/unifi-ha-api/token || true'
+# The + prefix raises privileges but does not bypass ProtectSystem=strict.
+ReadWritePaths=-/var/lib/unifi-os-app/legacy-migration
 LoadCredential=ha-api-token:/run/unifi-ha-api/token
 # Remain capability-free while watching setup. API-failure retries are bounded
 # by the reporter; a failed observation budget retries without blocking boot.

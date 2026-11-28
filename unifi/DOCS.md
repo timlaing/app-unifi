@@ -41,6 +41,34 @@ imports your Network configuration.
 - Problems that stop the app from starting are reported as Home Assistant
   notifications.
 
+## Migrating from the deprecated upstream add-on
+
+The separate `hassio-addons` UniFi Network add-on is deprecated. If it is
+installed alongside this app, version **5.3.2** is migrated automatically on
+this app's first start.
+
+> [!IMPORTANT]
+> **Before the first start of this app**, open the old UniFi Network add-on,
+> turn off its watchdog, and stop it. Both add-ons use the same host ports by
+> default; if the old add-on still owns them, Docker refuses to start this app
+> and the migration helper cannot run. After stopping the old add-on, start
+> this app and follow the migration in its log.
+
+1. The old add-on is stopped and its watchdog is temporarily disabled.
+2. A temporary partial backup of the old add-on is made and downloaded.
+3. Its Network data, settings and host port mappings are copied into this app.
+4. The temporary backup is deleted and this app starts normally.
+5. After Ubiquiti's setup wizard reports the import complete and the **UniFi Network migration setup needed** notification disappears, the old add-on is uninstalled once. A later
+   reinstallation of the old add-on is left alone.
+
+Any other old-app version is refused in the **app log** and nothing is changed;
+install the final 5.3.2 release first. Both add-ons use the same host ports by
+default, so only one can run at a time. If you remap the ports, both can run,
+but after the one-time migration this app ignores the old add-on.
+
+This migration uses the Supervisor API with the `manager` role, which lowers
+the app's security rating by one.
+
 ## Requirements
 
 - Home Assistant OS or a Supervised installation with cgroup v2 and AppArmor

@@ -41,10 +41,16 @@ class CandidateManifestTest(unittest.TestCase):
         # The app linter only accepts plain image names in build.yaml, so the
         # Dockerfile's FROM lines carry the digest pins instead.
         dockerfile = (APP / "Dockerfile").read_text()
-        bases = [line.split()[1] for line in dockerfile.splitlines() if line.startswith("FROM ")]
+        bases = [
+            line.split()[1]
+            for line in dockerfile.splitlines()
+            if line.startswith("FROM ")
+        ]
         self.assertEqual(len(bases), 3)
         for base in bases:
-            self.assertRegex(base, r"^[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$")
+            self.assertRegex(
+                base, r"^[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"
+            )
 
     def test_direct_console_and_default_legacy_host_ports(self):
         self.assertNotIn("webui", self.config)
@@ -81,21 +87,17 @@ class CandidateManifestTest(unittest.TestCase):
             set(self.config["ports"]), set(self.config["ports_description"])
         )
 
-    def test_options_retained_without_extra_host_access(self):
+    def test_options_retained_with_only_supervisor_migration_access(self):
         self.assertTrue(self.config["homeassistant_api"])
+        self.assertTrue(self.config["hassio_api"])
+        self.assertEqual(self.config["hassio_role"], "manager")
         self.assertEqual(
             set(self.config["schema"]),
             {"log_level", "memory_max", "memory_init", "ingress_allow_insecure_http"},
         )
         self.assertEqual(self.config["options"], {"ingress_allow_insecure_http": False})
         self.assertEqual(self.config["schema"]["ingress_allow_insecure_http"], "bool")
-        for flag in (
-            "host_pid",
-            "host_network",
-            "host_dbus",
-            "docker_api",
-            "hassio_api",
-        ):
+        for flag in ("host_pid", "host_network", "host_dbus", "docker_api"):
             self.assertFalse(self.config.get(flag, False))
 
     def test_translated_network_schema_matches_ports_and_aliases(self):
@@ -154,7 +156,9 @@ class CandidateManifestTest(unittest.TestCase):
         timeout = int(re.search(r"^TimeoutStartSec=(\d+)$", bootstrap, re.M)[1])
         prepare = (APP / "rootfs/usr/local/bin/unifi-os-prepare-mongo").read_text()
         readiness = int(re.search(r"deadline=\$\(\(SECONDS \+ (\d+)\)\)", prepare)[1])
-        runtimes = re.search(r'case "\$\{version\}" in ([0-9.|]+)\)', prepare)[1].split("|")
+        runtimes = re.search(r'case "\$\{version\}" in ([0-9.|]+)\)', prepare)[1].split(
+            "|"
+        )
         self.assertEqual(runtimes, ["3.6", "4.0", "4.2", "4.4"])
         # Each runtime may need a full readiness window; the vendor installer
         # (image load and first start) is budgeted 15 minutes on slow hosts.
