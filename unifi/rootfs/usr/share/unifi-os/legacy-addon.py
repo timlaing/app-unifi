@@ -407,7 +407,7 @@ def fail_migration(slug, err):
         },
     )
     log_error(
-        f"migration from {slug} failed: {err}. Existing data was left as-is, "
+        f"migration from {slug} failed: {err}. Any imported data was removed, "
         "the old add-on was left stopped, and the temporary backup was deleted."
     )
 
@@ -430,6 +430,7 @@ def migrate(token, slug, info):
     staging = None
     backup_file = None
     backup_slug = None
+    installed_data = False
     try:
         log(f"migrating from {slug} version {info.get('version')}")
         addon_action(token, slug, "options", {"watchdog": False})
@@ -440,6 +441,7 @@ def migrate(token, slug, info):
         os.chmod(staging, 0o700)
         settings = extract_data(backup_file, slug, staging)
         install_data(staging)
+        installed_data = True
         apply_settings(token, settings)
         atomic_write(
             RECEIPT,
@@ -455,9 +457,12 @@ def migrate(token, slug, info):
         FAILED.unlink(missing_ok=True)
         log("migration complete")
     except MIGRATION_ERRORS as err:
+        if installed_data:
+            # Data was committed by this attempt, not pre-existing, so remove it.
+            shutil.rmtree(TARGET_DATA, ignore_errors=True)
+        fail_migration(slug, err)
         cleanup_temp(staging, backup_file, backup_slug, token, lock_fd)
         staging = backup_file = backup_slug = None
-        fail_migration(slug, err)
     else:
         os.close(lock_fd)
 

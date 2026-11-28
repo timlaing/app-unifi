@@ -223,6 +223,30 @@ class LegacyAddonTest(unittest.TestCase):
         )
         self.assertNotIn(("POST", f"/addons/{LEGACY}/start", None), calls)
 
+    def test_failure_after_install_removes_data_but_keeps_marker(self):
+        calls = []
+        backup = self.migration / "fixture.tar"
+        make_backup(backup)
+
+        def download(url, token, destination, timeout=1800):
+            Path(destination).write_bytes(backup.read_bytes())
+
+        def fail_settings(token, settings):
+            raise self.module.LegacyError("settings failed")
+
+        with (
+            mock.patch.object(self.module, "request", self._dispatcher(calls=calls)),
+            mock.patch.object(self.module, "download", download),
+            mock.patch.object(self.module, "apply_settings", fail_settings),
+        ):
+            result, log = self._run()
+        self.assertEqual(result, 0)
+        self.assertIn("settings failed", log)
+        self.assertIn("imported data was removed", log)
+        self.assertFalse(self.module.TARGET_DATA.exists())
+        self.assertTrue(self.module.FAILED.exists())
+        self.assertFalse((self.migration / "complete").exists())
+
     def test_successful_migration_moves_data_and_host_ports(self):
         calls = []
         result, log = self._run_with_backup(calls)
@@ -309,11 +333,12 @@ class LegacyAddonTest(unittest.TestCase):
             APP / "rootfs/etc/systemd/system/unifi-os-setup-notification.service"
         ).read_text()
         self.assertIn("Type=oneshot", unit)
-        self.assertIn("+ExecStartPost=", unit)
+        self.assertIn("ExecStartPost=+/bin/sh", unit)
+        self.assertIn("ReadWritePaths=-/var/lib/unifi-os-app/legacy-migration", unit)
         self.assertIn("/usr/share/unifi-os/legacy-addon.py --cleanup", unit)
         self.assertLess(
             unit.index("/usr/share/unifi-os/setup-notification.py"),
-            unit.index("+ExecStartPost="),
+            unit.index("ExecStartPost=+"),
         )
 
 
